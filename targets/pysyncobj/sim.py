@@ -244,10 +244,13 @@ class Sim:
         self.leader_of_term: dict[int, str] = {}
         self.applied: dict[int, Any] = {}               # log index -> command, first seen
         self.applied_by: dict[int, str] = {}
+        self.apps: dict[int, list] = {}                 # log index -> [(node, command, term)] for every application
         self.committed: dict[int, tuple] = {}           # index -> (term, command) seen as committed
         self.blocked: set = set()                       # pairs a partition currently forbids
         self.trace: Optional[list] = [] if trace else None
         self.violations: list[Violation] = []
+        self.stop_on_violation = False                  # record and keep going, to see what clients see
+        self._reported: set = set()
 
     # ---- lifecycle -------------------------------------------------------
 
@@ -452,6 +455,10 @@ class Sim:
         sim = Sim.current
         nid = node.selfNode.id
         idx = node.raftLastApplied + 1     # incremented by PySyncObj right after the call returns
+        entry = node._SyncObj__getEntries(idx, 1)
+        term = entry[0][2] if entry else None
+        sim.apps.setdefault(idx, []).append((nid, command, term))
+        sim.log("apply", nid, idx, term, list(command))
         first = sim.applied.get(idx)
         if first is None:
             sim.applied[idx] = command
@@ -462,9 +469,28 @@ class Sim:
 
     def fail(self, kind, detail):
         v = Violation(kind, detail)
-        self.violations.append(v)
+        if kind not in self._reported:          # first occurrence of each kind is the interesting one
+            self._reported.add(kind)
+            v.t = round(self.world.now, 4)
+            self.violations.append(v)
         self.log("VIOLATION", kind, detail)
-        raise v
+        if self.stop_on_violation:
+            raise v
+
+    def agreed(self) -> dict[int, Any]:
+        """The command a majority of the nodes that applied an index agree on."""
+        out = {}
+        for idx, rows in self.apps.items():
+            by_node = {}
+            for nid, cmd, term in rows:
+                by_node[nid] = cmd          # a node's latest application of the index
+            counts: dict = {}
+            for cmd in by_node.values():
+                counts[cmd] = counts.get(cmd, 0) + 1
+            cmd, c = max(counts.items(), key=lambda kv: kv[1])
+            if c > self.n // 2:
+                out[idx] = cmd
+        return out
 
     def check_node(self, nid: str):
         node = self.nodes.get(nid)

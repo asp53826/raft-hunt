@@ -32,8 +32,15 @@ from hunt.linearizability import check  # noqa: E402
 from targets.pysyncobj.sim import FAIL_NAMES, Sim, Violation  # noqa: E402
 
 KEYS = ["a", "b", "c"]
-# errors after which the command definitely was not and will not be applied
-DEFINITE_FAIL = {"QUEUE_FULL", "MISSING_LEADER", "NOT_LEADER", "REQUEST_DENIED", "DISCARDED", "LEADER_CHANGED"}
+# Errors after which, reading syncobj.py, the command was never appended to any
+# leader's log: QUEUE_FULL and MISSING_LEADER never leave the node, NOT_LEADER and
+# REQUEST_DENIED come from a node that refused to append it, DISCARDED means its
+# log slot went to a different entry. LEADER_CHANGED is not here: it is sent to
+# every forwarded command still waiting for the leader's reply, including ones the
+# old leader already appended (seed 8 of the first campaign). Its outcome is
+# treated as unknown; whether a "failed" op was committed anyway is checked
+# separately and reported as failed-but-committed.
+DEFINITE_FAIL = {"QUEUE_FULL", "MISSING_LEADER", "NOT_LEADER", "REQUEST_DENIED", "DISCARDED"}
 
 
 @dataclass
@@ -71,6 +78,7 @@ class Workload:
         self.opid = 1000
         self.stopped = False
         self.home = {}
+        self.opid_of: dict[int, int] = {}
 
     def start(self):
         for i in range(self.p.clients):
@@ -112,20 +120,28 @@ class Workload:
             value = None
         op = self.h.invoke(client, kind, key, value, self.sim.world.now)
         op.note = nid
+        self.opid_of[op.id] = opid
         done = {"v": False}
 
         def callback(res, err):
-            if done["v"]:
-                return
-            done["v"] = True
             name = FAIL_NAMES.get(err, str(err))
             t = self.sim.world.now
+            if done["v"]:
+                # PySyncObj callbacks have no timeout of their own: a caller that kept
+                # waiting would have been told this. Count a late success as an ack.
+                if done.get("timed_out") and name == "SUCCESS":
+                    History.ok(op, t, res if kind != "write" else None)
+                    op.note = nid + " late-ack"
+                    self.sim.log("op", op.id, client, nid, kind, key, value, "LATE-SUCCESS", res if kind != "write" else None)
+                return
+            done["v"] = True
             if name == "SUCCESS":
                 History.ok(op, t, res if kind != "write" else None)
             elif name in DEFINITE_FAIL:
                 History.fail(op, t, name)
             else:
                 History.info(op, name)
+                op.note = nid + " " + name
             self.sim.log("op", op.id, client, nid, kind, key, value, name, res if kind != "write" else None)
             if final_key is None:
                 self.sim.schedule(t + self.rng.uniform(0, 0.3), "call", lambda: self.next(client))
@@ -133,7 +149,7 @@ class Workload:
         def timeout():
             if done["v"]:
                 return
-            done["v"] = True
+            done["v"] = done["timed_out"] = True
             History.info(op, "client-timeout")
             self.sim.log("op", op.id, client, nid, kind, key, value, "TIMEOUT", None)
             if final_key is None:
@@ -251,18 +267,47 @@ def run(seed: int, profile: str = "default", trace: bool = False, keep_history: 
             c = f"f{i}"
             sim.schedule(sim.world.now + 0.05 * i, "call", lambda c=c, key=key: wl.next(c, final_key=key))
         sim.run_until(p.duration + p.settle + p.op_timeout + 1)
-        result["violation"] = None
-    except Violation as v:
-        result["violation"] = {"kind": v.kind, "detail": v.detail, "t": round(sim.world.now, 4)}
     except Exception as e:  # a crash inside the library is a finding too
         import traceback
-        result["violation"] = {"kind": "exception", "detail": f"{type(e).__name__}: {e}",
-                               "trace": traceback.format_exc()[-2000:], "t": round(sim.world.now, 4)}
-    lin = check(h) if result["violation"] is None else None
+        sim.violations.append(Violation("exception", f"{type(e).__name__}: {e}"))
+        sim.violations[-1].t = round(sim.world.now, 4)
+        result["exception_trace"] = traceback.format_exc()[-2000:]
+    found = [{"kind": v.kind, "detail": v.detail, "t": getattr(v, "t", None)} for v in sim.violations]
+    # client-visible: a success callback for a command the cluster never committed at that index
+    agreed = sim.agreed()
+    applied_at: dict = {}                       # opid -> [(node, index, command, term)]
+    for idx, rows in sim.apps.items():
+        for nid, cmd, term in rows:
+            applied_at.setdefault(cmd[-1], []).append((nid, idx, cmd, term))
+    for o in h.ops:
+        if o.status != "ok":
+            continue
+        home = o.note.split()[0]
+        for nid, idx, cmd, term in applied_at.get(wl.opid_of[o.id], []):
+            if nid == home and idx in agreed and agreed[idx] != cmd:
+                found.append({"kind": "acked-not-committed", "t": o.complete,
+                              "detail": f"op {o.id} ({o.kind} {o.key}) was acknowledged by {home}, which applied it at "
+                                        f"index {idx} term {term}; the cluster committed {agreed[idx]!r} there"})
+    # an op the library reported as failed (or failed with an error documented as
+    # "not committed") whose command the cluster committed anyway
+    for o in h.ops:
+        code = o.note.split()[-1] if o.status == "info" else o.note
+        if o.status == "fail" or code == "LEADER_CHANGED":
+            hits = [(nid, idx) for nid, idx, cmd, term in applied_at.get(wl.opid_of[o.id], []) if agreed.get(idx) == cmd]
+            if hits:
+                found.append({"kind": "failed-but-committed", "t": o.complete if o.complete != float("inf") else None,
+                              "detail": f"op {o.id} ({o.kind} {o.key}) got {code} but was committed at index {hits[0][1]}"})
+    try:
+        lin = check(h)
+    except RuntimeError as e:
+        lin = None
+        result["linearizability"] = f"undecided: {e}"
     if lin is not None and not lin.ok:
         f = lin.failures[0]
-        result["violation"] = {"kind": "linearizability", "detail": f"key {f.key}: no legal order; stuck on op {f.stuck_on}",
-                               "prefix": f.prefix, "stuck_on": f.stuck_on}
+        found.append({"kind": "linearizability", "detail": f"key {f.key}: no legal order; stuck on op {f.stuck_on}",
+                      "prefix": f.prefix, "stuck_on": f.stuck_on, "t": None})
+    result["violations"] = found
+    result["violation"] = found[0] if found else None
     ops = h.ops
     result.update({
         "ok": result["violation"] is None,
