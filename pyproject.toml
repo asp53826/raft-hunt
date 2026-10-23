@@ -1,0 +1,16 @@
+[project]
+name = "raft-hunt"
+version = "0.1.0"
+description = "Deterministic simulation testing pointed at real Raft libraries"
+requires-python = ">=3.10"
+license = "MIT"
+
+[project.optional-dependencies]
+pysyncobj = ["pysyncobj==0.3.17"]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools]
+packages = ["hunt"]
