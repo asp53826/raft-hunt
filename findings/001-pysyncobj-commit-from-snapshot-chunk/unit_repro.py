@@ -47,39 +47,47 @@ class KV(SyncObj):
         self.data[key] = value
 
 
-a = KV()
-tr = a._SyncObj__transport
-recv = a._SyncObj__onMessageReceived
-for peer in ("b", "c"):
-    tr._onNodeConnected(Node(peer))
+def case(label, serialized):
+    """serialized: the first chunk of a snapshot transfer, or None (what a leader
+    sends a lagging follower while its forked log compaction is running)."""
+    a = KV()
+    tr = a._SyncObj__transport
+    recv = a._SyncObj__onMessageReceived
+    for peer in ("b", "c"):
+        tr._onNodeConnected(Node(peer))
 
-# 1. 'a' wins term 1 with b's vote
-clock[0] += 5
-a.doTick()
-recv(Node("b"), {"type": "response_vote", "term": 1})
-assert a._isLeader() and a.raftCurrentTerm == 1
+    # 1. 'a' wins term 1 with b's vote
+    clock[0] += 5
+    a.doTick()
+    recv(Node("b"), {"type": "response_vote", "term": 1})
+    assert a._isLeader() and a.raftCurrentTerm == 1
 
-# 2. a client writes through 'a'; 'a' appends it but is cut off before any follower acks it
-results = []
-a.put("x", "stale", callback=lambda res, err: results.append(err))
-a.doTick()
-log = [(e[1], e[2]) for e in a._SyncObj__raftLog]
-print("a's log (index, term):", log, "commit index:", a.raftCommitIndex)
-stale_index = log[-1][0]
+    # 2. a client writes through 'a'; 'a' appends it but is cut off before any follower acks it
+    results = []
+    a.put("x", "stale", callback=lambda res, err: results.append(err))
+    a.doTick()
+    log = [(e[1], e[2]) for e in a._SyncObj__raftLog]
+    stale_index = log[-1][0]
+    print(f"--- {label}")
+    print("a's log (index, term):", log, "commit index:", a.raftCommitIndex)
 
-# 3. b becomes leader of term 2 (its own entries at these indices), compacts, and
-#    starts sending 'a' a snapshot. The first chunk: no prevLogIdx, commit_index 5.
-recv(Node("b"), {"type": "append_entries", "term": 2, "commit_index": 5,
-                 "serialized": (b"first chunk of the snapshot", True, False)})
-print("after the first snapshot chunk: term", a.raftCurrentTerm, "commit index", a.raftCommitIndex,
-      "(covers the stale entry at index %d)" % stale_index if a.raftCommitIndex >= stale_index else "")
+    # 3. b is leader of term 2 with different entries at these indices and has
+    #    compacted its log, so it talks to 'a' with snapshot messages: no prevLogIdx.
+    recv(Node("b"), {"type": "append_entries", "term": 2, "commit_index": 5, "serialized": serialized})
+    print("after b's message: term", a.raftCurrentTerm, "commit index", a.raftCommitIndex,
+          "(covers the stale entry at index %d)" % stale_index if a.raftCommitIndex >= stale_index else "")
 
-# 4. the connection drops before the rest of the snapshot; 'a' keeps ticking
-a.doTick()
-print("after one tick: applied up to", a.raftLastApplied, "| a.data =", a.data, "| callback:",
-      [k for e in results for k, v in vars(FAIL_REASON).items() if v == e])
+    # 4. no more messages arrive for a moment; 'a' keeps ticking
+    a.doTick()
+    names = [k for e in results for k, v in vars(FAIL_REASON).items() if v == e and not k.startswith("_")]
+    print("after one tick: applied up to", a.raftLastApplied, "| a.data =", a.data, "| callback:", names)
+    return FAIL_REASON.SUCCESS in results and a.data.get("x") == "stale"
 
-if FAIL_REASON.SUCCESS in results and a.data.get("x") == "stale":
-    print("REPRODUCED: an entry the term-2 leader never had was applied and acknowledged as SUCCESS")
+
+hits = [case("first chunk of a snapshot transfer", (b"first chunk of the snapshot", True, False)),
+        case("serialized=None, sent while the leader's forked compaction runs", None)]
+if any(hits):
+    print("REPRODUCED: an entry the term-2 leader never had was applied and acknowledged as SUCCESS",
+          f"({sum(hits)} of 2 message shapes)")
     sys.exit(1)
 print("not reproduced")

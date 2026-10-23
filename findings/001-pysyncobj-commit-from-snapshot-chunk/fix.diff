@@ -1,0 +1,39 @@
+--- a/pysyncobj/syncobj.py
++++ b/pysyncobj/syncobj.py
+@@ -960,6 +960,12 @@
+             serialized = message.get('serialized', None)
+             self.__leaderCommitIndex = leaderCommitIndex = message['commit_index']
+ 
++            # Only an append_entries whose prevLogIdx/prevLogTerm matched (or a fully
++            # installed snapshot) proves this log agrees with the leader's, which is
++            # what makes it safe to adopt the leader's commit index (Raft fig. 2,
++            # AppendEntries rule 5). Snapshot chunks carry no prevLogIdx.
++            logMatchesLeader = False
++
+             # Regular append entries
+             if 'prevLogIdx' in message:
+                 transmission = message.get('transmission', None)
+@@ -1016,12 +1022,14 @@
+                 if newEntries:
+                     nextNodeIdx = newEntries[-1][1] + 1
+ 
++                logMatchesLeader = True
+                 self.__sendNextNodeIdx(node, nextNodeIdx=nextNodeIdx, success=True)
+ 
+             # Install snapshot
+             elif serialized is not None:
+                 if self.__serializer.setTransmissionData(serialized):
+                     self.__loadDumpFile(clearJournal=True)
++                    logMatchesLeader = True
+                     self.__sendNextNodeIdx(node, success=True)
+ 
+             # If the log was truncated below the commit index, don't persist a commit
+@@ -1029,7 +1037,7 @@
+             if self.__raftCommitIndex > self.__getCurrentLogIndex():
+                 self.__raftCommitIndex = self.__getCurrentLogIndex()
+ 
+-            if leaderCommitIndex > self.__raftCommitIndex:
++            if logMatchesLeader and leaderCommitIndex > self.__raftCommitIndex:
+                 self.__raftCommitIndex = min(leaderCommitIndex, self.__getCurrentLogIndex())
+ 
+             self.__raftLog.setRaftCommitIndex(self.__raftCommitIndex)
