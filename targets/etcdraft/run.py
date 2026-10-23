@@ -77,7 +77,13 @@ def analyse(r: dict) -> dict:
 def run_one(args):
     binary, seed, profile, extra = args
     t0 = time.time()
-    p = subprocess.run([binary, "-seed", str(seed), "-profile", profile, *extra], capture_output=True, text=True)
+    try:
+        # a stock run takes well under a second; a planted bug can livelock the library
+        p = subprocess.run([binary, "-seed", str(seed), "-profile", profile, *extra], capture_output=True, text=True,
+                           timeout=60)
+    except subprocess.TimeoutExpired:
+        return {"seed": seed, "profile": profile, "ok": False, "wall": 60.0,
+                "violations": [{"kind": "hang", "detail": "simulation did not finish in 60 s of wall time", "t": None}]}
     if p.returncode != 0:
         return {"seed": seed, "profile": profile, "ok": False,
                 "violations": [{"kind": "exception", "detail": p.stderr[-2000:], "t": None}]}

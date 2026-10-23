@@ -71,7 +71,7 @@ is why the mutants are worth running.
 | library | language | why | status |
 |---|---|---|---|
 | [PySyncObj](https://github.com/bakwc/PySyncObj) 0.3.17 | Python | Used by Patroni's Raft mode; lighter test suite; recent changes to persistence and leadership transfer | simulator done, 3 findings, campaigns continuing |
-| [etcd-io/raft](https://github.com/etcd-io/raft) v3.7.0 | Go | The reference implementation. The control: if planted bugs aren't caught here, the harness is the problem | planned |
+| [etcd-io/raft](https://github.com/etcd-io/raft) v3.7.0 | Go | The reference implementation. The control: if planted bugs aren't caught here, the harness is the problem | simulator done; **0 violations in 3,000 runs** (default, lossy, snap profiles, 1,000 seeds each), with drops, duplicates and reordering |
 | [little_raft](https://github.com/andreev-io/little-raft) 0.2.0 | Rust | Small, rarely tested | planned |
 | an npm Raft library | JavaScript | Lightly tested ecosystem | planned |
 
