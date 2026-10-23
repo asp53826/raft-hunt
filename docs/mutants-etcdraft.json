@@ -1,0 +1,63 @@
+{
+  "library": "etcd-io/raft v3.7.0 (seeded copy)",
+  "profile": "default",
+  "seeds": "0:300",
+  "stock": "0 of 300 runs flag anything",
+  "mutants": {
+    "double-vote": {
+      "caught": 137,
+      "runs": 300,
+      "first_seed": 0,
+      "kinds": {
+        "exception": 72,
+        "election-safety": 65,
+        "committed-entry-changed": 31,
+        "state-machine-safety": 31,
+        "acked-not-committed": 19,
+        "linearizability": 20
+      }
+    },
+    "no-up-to-date-check": {
+      "caught": 81,
+      "runs": 300,
+      "first_seed": 0,
+      "kinds": {
+        "committed-entry-changed": 57,
+        "acked-not-committed": 32,
+        "exception": 24,
+        "state-machine-safety": 38,
+        "linearizability": 30
+      }
+    },
+    "figure-8": {
+      "caught": 0,
+      "runs": 300,
+      "first_seed": null,
+      "kinds": {}
+    },
+    "minority-commit": {
+      "caught": 58,
+      "runs": 300,
+      "first_seed": 0,
+      "kinds": {
+        "hang": 26,
+        "acked-not-committed": 21,
+        "committed-entry-changed": 32,
+        "state-machine-safety": 7,
+        "linearizability": 6
+      }
+    },
+    "read-index-no-quorum": {
+      "caught": 76,
+      "runs": 300,
+      "first_seed": 0,
+      "kinds": {
+        "linearizability": 76
+      }
+    }
+  },
+  "notes": {
+    "figure-8": "a new etcd leader appends an empty entry in its own term on election, so the old-term entry is never counted alone; same miss as in PySyncObj",
+    "hang": "runs that did not finish in 60 s of wall time; stock runs take under a second"
+  }
+}

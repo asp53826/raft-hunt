@@ -58,6 +58,17 @@ Full numbers: [`docs/mutants-pysyncobj.json`](docs/mutants-pysyncobj.json).
 | votedFor not restored after restart (the real bug fixed by PR #202) | tight | 2 / 600 | election safety |
 | leader commits old-term entries by counting (figure 8) | crashy, tight | **0 / 800** | none |
 
+The same idea on etcd-io/raft (stock: 0 of 300 runs flag anything;
+[`docs/mutants-etcdraft.json`](docs/mutants-etcdraft.json)):
+
+| planted bug in etcd raft | caught | checks that fired |
+|---|---|---|
+| a node may grant a second vote in a term | 137 / 300 | election safety, panics on conflicting logs, state machine safety, linearizability |
+| voters ignore the candidate's log | 81 / 300 | committed entry changed, state machine safety, linearizability |
+| ReadIndex answers without confirming leadership | 76 / 300 | linearizability (only the client-history check can see a stale read) |
+| commit with half the cluster | 58 / 300 | committed entry changed, acked-not-committed, and 26 runs where the library livelocked |
+| figure 8 | **0 / 300** | none |
+
 The figure-8 mutant survives because PySyncObj appends a no-op in the new term
 on election and ships it in the same batch as older entries, so a follower
 acknowledges both at once and the old entry is never counted alone. The
