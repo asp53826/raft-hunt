@@ -23,6 +23,15 @@ exactly, and gets shrunk to the smallest schedule that still fails.
 None of these has been reported upstream yet. Each folder has the analysis,
 the reproductions, the patch and a draft issue.
 
+### With fixes 001 and 002 applied
+
+4,000 more runs (seeds 1000–1999 of each profile: default, crashy, transfer,
+compaction), about 1.59 million acknowledged client operations: no safety
+violation of any kind. The only flags are finding 003 (by design, 878 ops)
+and 2 histories the linearizability checker couldn't decide within 60 million
+search steps (transfer 1836, compaction 1244; both have long-overlapping
+late-acknowledged ops). Those 2 are reported as undecided, not as passing.
+
 ### Mistakes the harness made along the way
 
 Kept here because they're how the results got trustworthy:

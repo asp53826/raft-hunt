@@ -120,3 +120,36 @@ def test_agrees_with_brute_force(seed):
     rng = random.Random(seed)
     ops = random_history(rng, rng.randint(1, 6))
     assert check_key("x", ops).ok == brute_force(ops)
+
+
+def test_unobserved_unknown_writes_are_pruned_without_changing_verdicts():
+    # many unknown writes with unique, never-read values: trivially prunable
+    ops = [op(0, "write", 1, 0, 1)]
+    ops += [op(i, "write", 100 + i, 2, INF, status="info") for i in range(1, 40)]
+    ops += [op(40, "read", None, 5, 6, output=1)]
+    assert check_key("x", ops).ok
+    # ...but an unknown write whose value is read must stay
+    seen = ops[:-1] + [op(40, "read", None, 5, 6, output=105)]
+    assert check_key("x", seen).ok
+    stale = [op(0, "write", 1, 0, 1), op(1, "write", 2, 2, INF, status="info"),
+             op(2, "read", None, 3, 4, output=2), op(3, "read", None, 5, 6, output=1)]
+    assert not check_key("x", stale).ok
+
+
+@pytest.mark.parametrize("seed", range(300))
+def test_agrees_with_brute_force_unique_values(seed):
+    rng = random.Random(10_000 + seed)
+    ops = random_history(rng, rng.randint(1, 6))
+    # unique written values, reads drawn from the written set
+    vals = iter(range(100, 200))
+    writes = []
+    for o in ops:
+        if o.kind == "write":
+            o.value = next(vals); writes.append(o.value)
+        elif o.kind == "cas":
+            o.value = [rng.choice(writes) if writes and rng.random() < .7 else None, next(vals)]
+            writes.append(o.value[1])
+    for o in ops:
+        if o.kind == "read":
+            o.output = rng.choice(writes + [None]) if writes else None
+    assert check_key("x", ops).ok == brute_force(ops)

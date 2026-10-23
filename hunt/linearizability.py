@@ -71,6 +71,10 @@ class Result:
         return [k for k in self.keys if not k.ok]
 
 
+def _written(o: Op):
+    return o.value if o.kind == "write" else o.value[1] if o.kind == "cas" else None
+
+
 def _relevant(ops: list[Op]) -> list[Op]:
     out = []
     for o in ops:
@@ -79,10 +83,32 @@ def _relevant(ops: list[Op]) -> list[Op]:
         if o.kind == "read" and o.status == "info":
             continue
         out.append(o)
-    return out
+    # An unknown-outcome write whose value is unique and never observed can't be
+    # told apart from one that never happened, so dropping it keeps the verdict
+    # and shrinks the search (those writes carry +infinity returns and are most
+    # of its cost). "Observed" means a read returned the value, a cas compared
+    # against it, or a later cas failed: a failed cas sees "not equal to e",
+    # which any other value explains, so writes invoked before its return stay.
+    written = {}
+    for o in out:
+        v = _written(o)
+        if v is not None:
+            written[repr(v)] = written.get(repr(v), 0) + 1
+    observed = set()
+    for o in out:
+        if o.kind == "read" and o.status == "ok":
+            observed.add(repr(o.output))
+        elif o.kind == "cas":
+            observed.add(repr(o.value[0]))
+    failed_cas_returns = [o.complete for o in out if o.kind == "cas" and o.status == "ok" and not o.output]
+    last_failed_cas = max(failed_cas_returns, default=float("-inf"))
+    return [o for o in out
+            if not (o.status == "info" and o.kind in ("write", "cas")
+                    and written.get(repr(_written(o))) == 1 and repr(_written(o)) not in observed
+                    and o.invoke > last_failed_cas)]
 
 
-def check_key(key: str, ops: list[Op], max_explored: int = 5_000_000) -> KeyResult:
+def check_key(key: str, ops: list[Op], max_explored: int = 60_000_000) -> KeyResult:
     ops = _relevant(ops)
     n = len(ops)
     if n == 0:
