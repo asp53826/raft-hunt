@@ -67,6 +67,11 @@ PROFILES = {
                           faults={"partition": 3, "silent_partition": 2, "heal": 4, "crash": 3, "restart": 4,
                                   "pause_leader": 1, "compact": 3}),
     "crashy": Profile(name="crashy", faults={"crash": 5, "restart": 5, "partition": 1, "heal": 2, "pause_leader": 1}),
+    # three nodes, short crash/restart cycles and partitions: aimed at bugs that
+    # need a voter to restart inside a term, or a leader to die mid-commit
+    "tight": Profile(name="tight", nodes=3, fault_gap=(0.3, 2.0),
+                     faults={"crash": 5, "restart": 6, "partition": 3, "silent_partition": 1, "heal": 4,
+                             "pause_leader": 2, "transfer": 1}),
     "transfer": Profile(name="transfer", faults={"transfer": 6, "partition": 2, "silent_partition": 2, "heal": 3,
                                                  "pause_leader": 2, "crash": 1, "restart": 2}),
 }

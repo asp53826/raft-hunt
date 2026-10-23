@@ -42,9 +42,12 @@ MUTANTS = {
         "edit": ("                    if lastLogTerm < self.__getCurrentLogTerm():\n                        return\n", ""),
     },
     "minority-commit": {
-        "what": "the leader commits once half the cluster has an entry, not a majority",
+        # (an earlier version changed <= to <, which is a no-op for odd cluster
+        # sizes: count < 2.5 and count <= 2.5 agree on integers. It "survived"
+        # every run because it planted nothing.)
+        "what": "the leader commits with a minority: 2 of 5 nodes, or 1 of 3",
         "edit": ("                if count <= (len(self.__otherNodes) + 1) / 2:\n                    break\n",
-                 "                if count < (len(self.__otherNodes) + 1) / 2:\n                    break\n"),
+                 "                if count <= (len(self.__otherNodes) + 1) // 2 - 1:\n                    break\n"),
     },
     "stale-term-append": {
         "what": "followers accept append_entries from a leader of an older term",

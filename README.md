@@ -42,6 +42,30 @@ Kept here because they're how the results got trustworthy:
   stops after 0.1 s of wall time never stopped (14 hung seeds). Sends now
   cost time. Reading why the loop spun led to 002.
 
+## Does the harness catch real bugs? Planted ones
+
+Each mutant is one source edit to PySyncObj (with fixes 001/002 applied, so
+the baseline is clean apart from 003); a mutant is credited only with
+violations the unmutated run of the same seed didn't have.
+Full numbers: [`docs/mutants-pysyncobj.json`](docs/mutants-pysyncobj.json).
+
+| planted bug | profile | caught | checks that fired |
+|---|---|---|---|
+| a node may vote twice in a term | crashy | 16 / 200 runs | election safety |
+| voters ignore the candidate's log (no election restriction) | crashy | 46 / 200 | committed entry changed, state machine safety, acked-not-committed, linearizability |
+| followers accept append_entries from an older term | crashy | 43 / 200 | same four |
+| leader commits with a minority | tight (3 nodes) | 548 / 600 | same four |
+| votedFor not restored after restart (the real bug fixed by PR #202) | tight | 2 / 600 | election safety |
+| leader commits old-term entries by counting (figure 8) | crashy, tight | **0 / 800** | none |
+
+The figure-8 mutant survives because PySyncObj appends a no-op in the new term
+on election and ships it in the same batch as older entries, so a follower
+acknowledges both at once and the old entry is never counted alone. The
+first version of the minority-commit mutant also "survived" 200 runs: it
+changed `<=` to `<`, which is a no-op for a five-node cluster, so it planted
+nothing. That's what the table would look like if a check were missing, which
+is why the mutants are worth running.
+
 ## Targets
 
 | library | language | why | status |

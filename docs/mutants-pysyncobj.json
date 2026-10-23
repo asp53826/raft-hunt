@@ -1,0 +1,103 @@
+{
+  "library": "pysyncobj 0.3.17 with fixes 001 and 002 applied (baseline: 0 violations besides finding 003)",
+  "runs": [
+    {
+      "profile": "crashy",
+      "seeds": "0:200",
+      "mutants": {
+        "double-vote": {
+          "what": "a node may vote twice in the same term (votedFor check removed)",
+          "runs": 200,
+          "caught": 16,
+          "first_seed": 28,
+          "kinds": {
+            "election-safety": 16
+          }
+        },
+        "forget-vote-on-restart": {
+          "what": "votedFor isn't restored from the journal on restart (the bug fixed by PR #202)",
+          "runs": 200,
+          "caught": 0,
+          "first_seed": null,
+          "kinds": {}
+        },
+        "figure-8": {
+          "what": "a leader commits entries from earlier terms by counting replicas (Raft paper, figure 8)",
+          "runs": 200,
+          "caught": 0,
+          "first_seed": null,
+          "kinds": {}
+        },
+        "no-up-to-date-check": {
+          "what": "voters ignore the candidate's last log term (election restriction removed)",
+          "runs": 200,
+          "caught": 46,
+          "first_seed": 1,
+          "kinds": {
+            "state-machine-safety": 45,
+            "acked-not-committed": 43,
+            "committed-entry-changed": 46,
+            "linearizability": 36
+          }
+        },
+        "minority-commit": {
+          "what": "the leader commits once half the cluster has an entry, not a majority",
+          "runs": 200,
+          "caught": 0,
+          "first_seed": null,
+          "kinds": {}
+        },
+        "stale-term-append": {
+          "what": "followers accept append_entries from a leader of an older term",
+          "runs": 200,
+          "caught": 43,
+          "first_seed": 12,
+          "kinds": {
+            "state-machine-safety": 34,
+            "acked-not-committed": 29,
+            "committed-entry-changed": 43,
+            "linearizability": 5
+          }
+        }
+      }
+    },
+    {
+      "profile": "tight",
+      "seeds": "0:600",
+      "mutants": {
+        "minority-commit": {
+          "what": "the leader commits once 2 of 5 nodes (a minority) have an entry",
+          "runs": 600,
+          "caught": 548,
+          "first_seed": 0,
+          "kinds": {
+            "linearizability": 439,
+            "committed-entry-changed": 548,
+            "state-machine-safety": 499,
+            "acked-not-committed": 474
+          }
+        },
+        "forget-vote-on-restart": {
+          "what": "votedFor isn't restored from the journal on restart (the bug fixed by PR #202)",
+          "runs": 600,
+          "caught": 2,
+          "first_seed": 11,
+          "kinds": {
+            "election-safety": 2
+          }
+        },
+        "figure-8": {
+          "what": "a leader commits entries from earlier terms by counting replicas (Raft paper, figure 8)",
+          "runs": 600,
+          "caught": 0,
+          "first_seed": null,
+          "kinds": {}
+        }
+      }
+    }
+  ],
+  "notes": {
+    "minority-commit (crashy run)": "that version of the mutant changed <= to <, a no-op for 5 nodes; replaced, and the tight run uses the real one",
+    "figure-8": "PySyncObj appends a no-op in the new term on election and sends it in the same append_entries batch as older entries, so a follower acks both at once and the leader never counts an old-term entry alone; the planted bug has no window to show through"
+  }
+}
