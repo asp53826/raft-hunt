@@ -1,0 +1,741 @@
+{
+ "finding": "001",
+ "library": "pysyncobj 0.3.17",
+ "leader": "n2",
+ "new_leader": "n3",
+ "steps": [
+  {
+   "t": 3.0,
+   "title": "Three nodes, one leader",
+   "text": "n2 is the leader of term 1. Every node has the same log.",
+   "focus": "n2",
+   "nodes": {
+    "n1": {
+     "role": "follower",
+     "term": 1,
+     "commit": 2,
+     "applied": 2,
+     "x": null,
+     "log": [
+      [
+       1,
+       0,
+       "no-op"
+      ],
+      [
+       2,
+       1,
+       "no-op"
+      ]
+     ],
+     "cut": []
+    },
+    "n2": {
+     "role": "leader",
+     "term": 1,
+     "commit": 2,
+     "applied": 2,
+     "x": null,
+     "log": [
+      [
+       1,
+       0,
+       "no-op"
+      ],
+      [
+       2,
+       1,
+       "no-op"
+      ]
+     ],
+     "cut": []
+    },
+    "n3": {
+     "role": "follower",
+     "term": 1,
+     "commit": 2,
+     "applied": 2,
+     "x": null,
+     "log": [
+      [
+       1,
+       0,
+       "no-op"
+      ],
+      [
+       2,
+       1,
+       "no-op"
+      ]
+     ],
+     "cut": []
+    }
+   },
+   "acks": []
+  },
+  {
+   "t": 4.0,
+   "title": "x = 1 commits",
+   "text": "A client writes x=1 through n2. A majority stores it, it commits, every node applies it.",
+   "focus": "n2",
+   "nodes": {
+    "n1": {
+     "role": "follower",
+     "term": 1,
+     "commit": 3,
+     "applied": 3,
+     "x": 1,
+     "log": [
+      [
+       1,
+       0,
+       "no-op"
+      ],
+      [
+       2,
+       1,
+       "no-op"
+      ],
+      [
+       3,
+       1,
+       "x=1"
+      ]
+     ],
+     "cut": []
+    },
+    "n2": {
+     "role": "leader",
+     "term": 1,
+     "commit": 3,
+     "applied": 3,
+     "x": 1,
+     "log": [
+      [
+       1,
+       0,
+       "no-op"
+      ],
+      [
+       2,
+       1,
+       "no-op"
+      ],
+      [
+       3,
+       1,
+       "x=1"
+      ]
+     ],
+     "cut": []
+    },
+    "n3": {
+     "role": "follower",
+     "term": 1,
+     "commit": 3,
+     "applied": 3,
+     "x": 1,
+     "log": [
+      [
+       1,
+       0,
+       "no-op"
+      ],
+      [
+       2,
+       1,
+       "no-op"
+      ],
+      [
+       3,
+       1,
+       "x=1"
+      ]
+     ],
+     "cut": []
+    }
+   },
+   "acks": [
+    {
+     "t": 3.083,
+     "at": "n2",
+     "value": 1,
+     "result": "SUCCESS"
+    }
+   ]
+  },
+  {
+   "t": 4.5,
+   "title": "n2 is cut off",
+   "text": "The network splits n2 from the other two. n2 doesn't know it has lost the majority yet, so it accepts x='stale' and appends it at the next index. It can't commit it: nobody else has it.",
+   "focus": "n2",
+   "nodes": {
+    "n1": {
+     "role": "follower",
+     "term": 1,
+     "commit": 3,
+     "applied": 3,
+     "x": 1,
+     "log": [
+      [
+       1,
+       0,
+       "no-op"
+      ],
+      [
+       2,
+       1,
+       "no-op"
+      ],
+      [
+       3,
+       1,
+       "x=1"
+      ]
+     ],
+     "cut": [
+      "n2"
+     ]
+    },
+    "n2": {
+     "role": "leader",
+     "term": 1,
+     "commit": 3,
+     "applied": 3,
+     "x": 1,
+     "log": [
+      [
+       1,
+       0,
+       "no-op"
+      ],
+      [
+       2,
+       1,
+       "no-op"
+      ],
+      [
+       3,
+       1,
+       "x=1"
+      ],
+      [
+       4,
+       1,
+       "x='stale'"
+      ]
+     ],
+     "cut": [
+      "n1",
+      "n3"
+     ]
+    },
+    "n3": {
+     "role": "follower",
+     "term": 1,
+     "commit": 3,
+     "applied": 3,
+     "x": 1,
+     "log": [
+      [
+       1,
+       0,
+       "no-op"
+      ],
+      [
+       2,
+       1,
+       "no-op"
+      ],
+      [
+       3,
+       1,
+       "x=1"
+      ]
+     ],
+     "cut": [
+      "n2"
+     ]
+    }
+   },
+   "acks": [
+    {
+     "t": 3.083,
+     "at": "n2",
+     "value": 1,
+     "result": "SUCCESS"
+    }
+   ]
+  },
+  {
+   "t": 8.0,
+   "title": "n3 takes over",
+   "text": "The majority elects n3 in term 2. Its no-op lands at the same index as n2's stale entry, and x='new' commits after it. This is normal Raft: n2's entry was never committed.",
+   "focus": "n3",
+   "nodes": {
+    "n1": {
+     "role": "follower",
+     "term": 2,
+     "commit": 5,
+     "applied": 5,
+     "x": "new",
+     "log": [
+      [
+       1,
+       0,
+       "no-op"
+      ],
+      [
+       2,
+       1,
+       "no-op"
+      ],
+      [
+       3,
+       1,
+       "x=1"
+      ],
+      [
+       4,
+       2,
+       "no-op"
+      ],
+      [
+       5,
+       2,
+       "x='new'"
+      ]
+     ],
+     "cut": [
+      "n2"
+     ]
+    },
+    "n2": {
+     "role": "leader",
+     "term": 1,
+     "commit": 3,
+     "applied": 3,
+     "x": 1,
+     "log": [
+      [
+       1,
+       0,
+       "no-op"
+      ],
+      [
+       2,
+       1,
+       "no-op"
+      ],
+      [
+       3,
+       1,
+       "x=1"
+      ],
+      [
+       4,
+       1,
+       "x='stale'"
+      ]
+     ],
+     "cut": [
+      "n1",
+      "n3"
+     ]
+    },
+    "n3": {
+     "role": "leader",
+     "term": 2,
+     "commit": 5,
+     "applied": 5,
+     "x": "new",
+     "log": [
+      [
+       1,
+       0,
+       "no-op"
+      ],
+      [
+       2,
+       1,
+       "no-op"
+      ],
+      [
+       3,
+       1,
+       "x=1"
+      ],
+      [
+       4,
+       2,
+       "no-op"
+      ],
+      [
+       5,
+       2,
+       "x='new'"
+      ]
+     ],
+     "cut": [
+      "n2"
+     ]
+    }
+   },
+   "acks": [
+    {
+     "t": 3.083,
+     "at": "n2",
+     "value": 1,
+     "result": "SUCCESS"
+    },
+    {
+     "t": 7.119,
+     "at": "n3",
+     "value": "new",
+     "result": "SUCCESS"
+    }
+   ]
+  },
+  {
+   "t": 9.0,
+   "title": "n3 compacts its log",
+   "text": "n3 replaces its old log entries with a snapshot. To catch n2 up later, it will have to send that snapshot instead of individual entries.",
+   "focus": "n3",
+   "nodes": {
+    "n1": {
+     "role": "follower",
+     "term": 2,
+     "commit": 5,
+     "applied": 5,
+     "x": "new",
+     "log": [
+      [
+       1,
+       0,
+       "no-op"
+      ],
+      [
+       2,
+       1,
+       "no-op"
+      ],
+      [
+       3,
+       1,
+       "x=1"
+      ],
+      [
+       4,
+       2,
+       "no-op"
+      ],
+      [
+       5,
+       2,
+       "x='new'"
+      ]
+     ],
+     "cut": [
+      "n2"
+     ]
+    },
+    "n2": {
+     "role": "leader",
+     "term": 1,
+     "commit": 3,
+     "applied": 3,
+     "x": 1,
+     "log": [
+      [
+       1,
+       0,
+       "no-op"
+      ],
+      [
+       2,
+       1,
+       "no-op"
+      ],
+      [
+       3,
+       1,
+       "x=1"
+      ],
+      [
+       4,
+       1,
+       "x='stale'"
+      ]
+     ],
+     "cut": [
+      "n1",
+      "n3"
+     ]
+    },
+    "n3": {
+     "role": "leader",
+     "term": 2,
+     "commit": 5,
+     "applied": 5,
+     "x": "new",
+     "log": [
+      [
+       4,
+       2,
+       "no-op"
+      ],
+      [
+       5,
+       2,
+       "x='new'"
+      ]
+     ],
+     "cut": [
+      "n2"
+     ]
+    }
+   },
+   "acks": [
+    {
+     "t": 3.083,
+     "at": "n2",
+     "value": 1,
+     "result": "SUCCESS"
+    },
+    {
+     "t": 7.119,
+     "at": "n3",
+     "value": "new",
+     "result": "SUCCESS"
+    }
+   ]
+  },
+  {
+   "t": 9.596,
+   "title": "The bug: commit index from a snapshot chunk",
+   "text": "The partition heals and n3 starts sending n2 its snapshot. The first chunk carries n3's commit index but no log position to check against. n2 adopts it anyway, capped at the end of its own log, so its stale entry is now 'committed'. Then the connection drops.",
+   "focus": "n2",
+   "nodes": {
+    "n1": {
+     "role": "follower",
+     "term": 2,
+     "commit": 5,
+     "applied": 5,
+     "x": "new",
+     "log": [
+      [
+       1,
+       0,
+       "no-op"
+      ],
+      [
+       2,
+       1,
+       "no-op"
+      ],
+      [
+       3,
+       1,
+       "x=1"
+      ],
+      [
+       4,
+       2,
+       "no-op"
+      ],
+      [
+       5,
+       2,
+       "x='new'"
+      ]
+     ],
+     "cut": []
+    },
+    "n2": {
+     "role": "follower",
+     "term": 2,
+     "commit": 4,
+     "applied": 3,
+     "x": 1,
+     "log": [
+      [
+       1,
+       0,
+       "no-op"
+      ],
+      [
+       2,
+       1,
+       "no-op"
+      ],
+      [
+       3,
+       1,
+       "x=1"
+      ],
+      [
+       4,
+       1,
+       "x='stale'"
+      ]
+     ],
+     "cut": []
+    },
+    "n3": {
+     "role": "leader",
+     "term": 2,
+     "commit": 5,
+     "applied": 5,
+     "x": "new",
+     "log": [
+      [
+       4,
+       2,
+       "no-op"
+      ],
+      [
+       5,
+       2,
+       "x='new'"
+      ]
+     ],
+     "cut": []
+    }
+   },
+   "acks": [
+    {
+     "t": 3.083,
+     "at": "n2",
+     "value": 1,
+     "result": "SUCCESS"
+    },
+    {
+     "t": 7.119,
+     "at": "n3",
+     "value": "new",
+     "result": "SUCCESS"
+    }
+   ]
+  },
+  {
+   "t": 9.65,
+   "title": "n2 applies and acknowledges it",
+   "text": "n2 applies the entry it believes is committed. x becomes 'stale' on n2, and the client that wrote it is told SUCCESS. The cluster's value is 'new'. That write was never committed and will be erased when the snapshot finally arrives.",
+   "focus": "n2",
+   "nodes": {
+    "n1": {
+     "role": "follower",
+     "term": 2,
+     "commit": 5,
+     "applied": 5,
+     "x": "new",
+     "log": [
+      [
+       1,
+       0,
+       "no-op"
+      ],
+      [
+       2,
+       1,
+       "no-op"
+      ],
+      [
+       3,
+       1,
+       "x=1"
+      ],
+      [
+       4,
+       2,
+       "no-op"
+      ],
+      [
+       5,
+       2,
+       "x='new'"
+      ]
+     ],
+     "cut": [
+      "n2"
+     ]
+    },
+    "n2": {
+     "role": "follower",
+     "term": 2,
+     "commit": 4,
+     "applied": 4,
+     "x": "stale",
+     "log": [
+      [
+       1,
+       0,
+       "no-op"
+      ],
+      [
+       2,
+       1,
+       "no-op"
+      ],
+      [
+       3,
+       1,
+       "x=1"
+      ],
+      [
+       4,
+       1,
+       "x='stale'"
+      ]
+     ],
+     "cut": [
+      "n1",
+      "n3"
+     ]
+    },
+    "n3": {
+     "role": "leader",
+     "term": 2,
+     "commit": 5,
+     "applied": 5,
+     "x": "new",
+     "log": [
+      [
+       4,
+       2,
+       "no-op"
+      ],
+      [
+       5,
+       2,
+       "x='new'"
+      ]
+     ],
+     "cut": [
+      "n2"
+     ]
+    }
+   },
+   "acks": [
+    {
+     "t": 3.083,
+     "at": "n2",
+     "value": 1,
+     "result": "SUCCESS"
+    },
+    {
+     "t": 7.119,
+     "at": "n3",
+     "value": "new",
+     "result": "SUCCESS"
+    },
+    {
+     "t": 9.615,
+     "at": "n2",
+     "value": "stale",
+     "result": "SUCCESS"
+    }
+   ]
+  }
+ ]
+}

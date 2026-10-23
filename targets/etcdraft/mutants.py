@@ -27,7 +27,7 @@ MUTANTS = {
         "what": "voters ignore whether the candidate's log is up to date (election restriction removed)",
         "file": "log.go",
         "edit": ("	return their.term > our.term || their.term == our.term && their.index >= our.index\n",
-                 "	return true\n"),
+                 "	_ = our\n	return true\n"),
     },
     "figure-8": {
         "what": "a leader commits by counting replicas even for entries from earlier terms (Raft paper, figure 8)",
