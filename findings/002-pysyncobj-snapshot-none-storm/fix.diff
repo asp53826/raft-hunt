@@ -1,0 +1,15 @@
+--- a/pysyncobj/syncobj.py
++++ b/pysyncobj/syncobj.py
+@@ -1326,7 +1326,12 @@
+                         else:
+                             sendingSerialized = True
+                     else:
++                        # The snapshot isn't available yet (e.g. a forked compaction is
++                        # still writing it). One message per period keeps the follower's
++                        # election timer reset; looping would resend it until the time
++                        # budget runs out.
+                         sendingSerialized = False
++                        break
+ 
+                 nextNodeIndex = self.__raftNextIndex[node]
+ 
