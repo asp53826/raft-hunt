@@ -56,11 +56,12 @@ class World:
         self.now = 0.0                       # true simulated time
         self.current: Optional[str] = None   # node whose code is running
         self.offset: dict[str, float] = {}   # per-node clock offset
+        self.busy = 0.0                      # time the running node has spent inside this event
         self.rng = random.Random(seed)       # schedule decisions
         self.lib_rng = random.Random(seed ^ 0x5EED)  # PySyncObj's own randomness
 
     def local_time(self) -> float:
-        return self.now + self.offset.get(self.current, 0.0)
+        return self.now + self.busy + self.offset.get(self.current, 0.0)
 
 
 def _monotonic():
@@ -88,6 +89,13 @@ class Event:
 class Net:
     """Connections between nodes, TCP-style."""
 
+    # Sending isn't free: pickling and a socket write cost the sender time. Without
+    # this, PySyncObj loops that stop after appendEntriesPeriod of wall time
+    # (__sendAppendEntries) would never stop, since the virtual clock doesn't move
+    # inside an event. 30us + 1 GB/s is a cheap localhost send.
+    SEND_COST = 30e-6
+    SEND_BYTES_PER_S = 1e9
+
     def __init__(self, sim: "Sim", latency=(0.001, 0.012)):
         self.sim = sim
         self.latency = latency
@@ -108,13 +116,20 @@ class Net:
         if st == "down":
             return False
         self.sim.stats["msgs_sent"] += 1
+        w = self.sim.world
         if st == "blackhole":
+            w.busy += self.SEND_COST
             self.sim.stats["msgs_lost"] += 1
             return True                           # TCP accepted it; it will never arrive
         # serialize like the real transport, so no object is shared between nodes
         payload = pickle.dumps(message, protocol=pickle.HIGHEST_PROTOCOL)
+        w.busy += self.SEND_COST + len(payload) / self.SEND_BYTES_PER_S
+        if isinstance(message, dict) and message.get("type") == "append_entries" and "serialized" in message:
+            self.sim.stats["snapshot_msgs"] += 1
+            if message["serialized"] is None:
+                self.sim.stats["snapshot_none_msgs"] += 1
         lo, hi = self.latency
-        t = self.sim.world.now + self.sim.world.rng.uniform(lo, hi)
+        t = w.now + w.busy + w.rng.uniform(lo, hi)
         ch = (src, dst)
         t = max(t, self.last_delivery.get(ch, 0.0) + 1e-6)   # FIFO per direction
         self.last_delivery[ch] = t
@@ -239,7 +254,7 @@ class Sim:
         self.generation: dict[str, int] = {i: 0 for i in self.ids}
         self.dir = workdir or tempfile.mkdtemp(prefix=f"raft-hunt-{seed}-")
         self.stats = {"msgs_sent": 0, "msgs_lost": 0, "delivered": 0, "ticks": 0, "crashes": 0,
-                      "restarts": 0, "elections": 0}
+                      "restarts": 0, "elections": 0, "snapshot_msgs": 0, "snapshot_none_msgs": 0}
         # safety bookkeeping
         self.leader_of_term: dict[int, str] = {}
         self.applied: dict[int, Any] = {}               # log index -> command, first seen
@@ -346,6 +361,7 @@ class Sim:
             return False
         ev = heapq.heappop(self.events)
         self.world.now = max(self.world.now, ev.t)
+        self.world.busy = 0.0
         getattr(self, "_on_" + ev.kind)(ev.data)
         return True
 
