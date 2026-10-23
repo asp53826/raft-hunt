@@ -57,7 +57,11 @@ class World:
         self.current: Optional[str] = None   # node whose code is running
         self.offset: dict[str, float] = {}   # per-node clock offset
         self.busy = 0.0                      # time the running node has spent inside this event
-        self.rng = random.Random(seed)       # schedule decisions
+        # independent streams, so removing a fault (shrinking) doesn't reshuffle the
+        # workload or the network
+        self.rng = random.Random(seed)                       # network latency and tick jitter
+        self.wl_rng = random.Random((seed << 1) ^ 0xC11E47)  # client workload
+        self.nem_rng = random.Random((seed << 2) ^ 0xFA017)  # fault plan
         self.lib_rng = random.Random(seed ^ 0x5EED)  # PySyncObj's own randomness
 
     def local_time(self) -> float:

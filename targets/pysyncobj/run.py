@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import random
 import json
 import os
 import sys
@@ -74,7 +75,7 @@ PROFILES = {
 class Workload:
     def __init__(self, sim: Sim, history: History, profile: Profile):
         self.sim, self.h, self.p = sim, history, profile
-        self.rng = sim.world.rng
+        self.rng = sim.world.wl_rng
         self.opid = 1000
         self.stopped = False
         self.home = {}
@@ -166,23 +167,35 @@ class Workload:
 
 
 class Nemesis:
+    """Faults are planned up front: a list of (time, kind, per-event seed). Who
+    exactly gets crashed or partitioned is decided when the event fires, from
+    its own seed and the cluster's state then. A plan is plain JSON, so a
+    failing one can be shrunk by deleting events and replayed with --schedule."""
+
     def __init__(self, sim: Sim, profile: Profile):
         self.sim, self.p = sim, profile
-        self.rng = sim.world.rng
+
+    def plan(self) -> list[dict]:
+        rng, t, out = self.sim.world.nem_rng, 0.0, []
+        kinds, weights = zip(*self.p.faults.items())
+        while True:
+            t += rng.uniform(*self.p.fault_gap)
+            if t >= self.p.duration:
+                return out
+            out.append({"t": round(t, 4), "kind": rng.choices(kinds, weights)[0], "r": rng.randrange(1 << 30)})
+
+    def start(self, plan: list[dict]):
+        for ev in plan:
+            self.sim.schedule(ev["t"], "call", lambda ev=ev: self.fire(ev))
+
+    def fire(self, ev):
+        self.rng = random.Random(ev["r"])
+        self.sim.log("fault", ev["kind"])
+        getattr(self, "f_" + ev["kind"])()
 
     def leader(self) -> Optional[str]:
         ls = [n for n in self.sim.ids if self.sim.alive(n) and self.sim.nodes[n]._isLeader()]
         return max(ls, key=lambda n: self.sim.nodes[n].raftCurrentTerm) if ls else None
-
-    def start(self):
-        self.sim.schedule(self.rng.uniform(*self.p.fault_gap), "call", self.fire)
-
-    def fire(self):
-        if self.sim.world.now >= self.p.duration:
-            return
-        kinds, weights = zip(*self.p.faults.items())
-        getattr(self, "f_" + self.rng.choices(kinds, weights)[0])()
-        self.sim.schedule(self.sim.world.now + self.rng.uniform(*self.p.fault_gap), "call", self.fire)
 
     def split(self):
         ids = self.sim.ids[:]
@@ -245,7 +258,8 @@ class Nemesis:
                 self.sim.nodes[nid].forceLogCompaction()
 
 
-def run(seed: int, profile: str = "default", trace: bool = False, keep_history: Optional[str] = None) -> dict:
+def run(seed: int, profile: str = "default", trace: bool = False, keep_history: Optional[str] = None,
+        schedule: Optional[list] = None) -> dict:
     p = PROFILES[profile]
     t0 = time.time()
     sim = Sim(seed, n=p.nodes, conf_overrides=p.conf, trace=trace)
@@ -253,9 +267,11 @@ def run(seed: int, profile: str = "default", trace: bool = False, keep_history: 
     wl, nem = Workload(sim, h, p), Nemesis(sim, p)
     result = {"seed": seed, "profile": profile}
     try:
+        plan = nem.plan() if schedule is None else schedule
+        result["schedule"] = plan
         sim.boot()
         wl.start()
-        nem.start()
+        nem.start(plan)
         sim.run_until(p.duration)
         # settle: no more faults, everything back up, then read every key
         wl.stopped = True
@@ -332,7 +348,7 @@ def run(seed: int, profile: str = "default", trace: bool = False, keep_history: 
 def _campaign_one(args):
     seed, profile = args
     r = run(seed, profile)
-    return {k: v for k, v in r.items() if k != "trace"}
+    return {k: v for k, v in r.items() if k not in ("trace", "schedule")}
 
 
 def main():
@@ -344,9 +360,13 @@ def main():
     ap.add_argument("--trace", help="write the full event trace of --seed to this file")
     ap.add_argument("--history", help="write the client history of --seed to this file (JSONL)")
     ap.add_argument("--out", default="runs", help="campaign output directory")
+    ap.add_argument("--schedule", help="replay this fault plan (JSON list) instead of the seed's own")
     a = ap.parse_args()
     if a.seed is not None:
-        r = run(a.seed, a.profile, trace=bool(a.trace), keep_history=a.history)
+        plan = json.load(open(a.schedule)) if a.schedule else None
+        if isinstance(plan, dict):
+            plan = plan["schedule"]
+        r = run(a.seed, a.profile, trace=bool(a.trace), keep_history=a.history, schedule=plan)
         if a.trace:
             with open(a.trace, "w") as f:
                 json.dump(r, f)

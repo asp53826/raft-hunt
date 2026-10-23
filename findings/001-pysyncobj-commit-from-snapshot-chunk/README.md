@@ -5,7 +5,7 @@
 | library | [PySyncObj](https://github.com/bakwc/PySyncObj) 0.3.17 (= `master` at 6962777) |
 | affected | every release: the unchecked commit-index update is in the first commit (2016, da0d608); #166 (2022) changed it to be monotonic but kept it unconditional |
 | property | state machine safety, durability of acknowledgements |
-| found by | seed 1 of the first default-profile campaign (`committed-entry-changed` at t=42.068) |
+| found by | seed 1 of the first default-profile campaign, harness at 45250c4 (`committed-entry-changed` at t=42.068) |
 | reproductions | [`unit_repro.py`](unit_repro.py) (pysyncobj only, no simulator), [`repro.py`](repro.py) (scripted 3-node schedule) |
 | proposed fix | [`fix.diff`](fix.diff), applies cleanly to `master` |
 | status | **not yet reported upstream** |
@@ -85,8 +85,25 @@ PySyncObj logic, TCP-faithful network):
 REPRODUCED
 ```
 
-Random campaigns (seeds 0–399, default profile, 5 nodes, 60 s of faults each):
-13 runs hit `committed-entry-changed`.
+Random campaigns (5 nodes, 60 s of faults each):
+
+- harness at 45250c4, seeds 0–399: 13 runs hit `committed-entry-changed`.
+- harness with planned fault schedules (seeds have different meanings from
+  here on), seeds 0–299: 9 runs hit `committed-entry-changed`, and in 2 of
+  them (seeds 52 and 270) a node went on to **apply a different command than
+  the rest of the cluster at the same index** (`state-machine-safety`).
+  PySyncObj's own `logger.critical("truncating already-applied log entries
+  ... state machine may have diverged")` fired 5 times in that campaign.
+  With the fix, both seeds run clean with the same number of acknowledged
+  operations (207 and 282).
+- seed 52 shrunk from 19 planned faults to 13 that still diverge
+  ([`shrunk-seed52.json`](shrunk-seed52.json); replay with
+  `python -m targets.pysyncobj.run --seed 52 --schedule findings/001-pysyncobj-commit-from-snapshot-chunk/shrunk-seed52.json`):
+
+  ```
+  still fails: state-machine-safety at t=60.7739: index 50: n5 applied
+  ('cas', 'b', 1019, 1050, 1050), n1 applied ('get', 'a', 1048)
+  ```
 
 ## Proposed fix
 
