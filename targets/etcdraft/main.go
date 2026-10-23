@@ -889,20 +889,31 @@ func main() {
 	}
 	run(p.Duration + p.Settle + p.OpTimeout + 1)
 
-	// majority-agreed command per index, for acked-not-committed
+	// Commands a majority of nodes hold in their final state, after every fault
+	// has healed and the cluster has settled. Each node's set of applied command
+	// ids travels inside snapshots, so a node that caught up by snapshot still
+	// counts. (Counting per-index applications instead, as an earlier version
+	// did, misses commands that most nodes received only through a snapshot.)
 	agreed := map[int64]uint64{}
-	for idx, byNode := range s.apps {
-		count := map[string]int{}
-		for _, k := range byNode {
-			count[k]++
+	holders := map[int64]int{}
+	for _, n := range s.nodes {
+		if n.alive {
+			for id := range n.seen {
+				holders[id]++
+			}
 		}
-		for k, c := range count {
-			if c > p.Nodes/2 {
-				var cmd Cmd
-				_ = json.Unmarshal([]byte(k), &cmd)
-				if _, dup := agreed[cmd.ID]; !dup {
-					agreed[cmd.ID] = idx
-				}
+	}
+	for id, c := range holders {
+		if c > p.Nodes/2 {
+			agreed[id] = 0
+		}
+	}
+	for idx, byNode := range s.apps {
+		for _, k := range byNode {
+			var cmd Cmd
+			_ = json.Unmarshal([]byte(k), &cmd)
+			if _, ok := agreed[cmd.ID]; ok && (agreed[cmd.ID] == 0 || idx < agreed[cmd.ID]) {
+				agreed[cmd.ID] = idx
 			}
 		}
 	}
